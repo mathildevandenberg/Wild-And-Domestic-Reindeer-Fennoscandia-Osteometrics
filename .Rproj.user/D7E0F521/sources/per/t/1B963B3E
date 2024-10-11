@@ -1,0 +1,27 @@
+{
+    "id": "1B963B3E",
+    "path": "C:/projects/2nd-Osteometrics-paper.-All-subspecies/manuscript_repo/code/04_classification.Rmd",
+    "project_path": "code/04_classification.Rmd",
+    "type": "r_markdown",
+    "hash": "304350943",
+    "contents": "",
+    "dirty": false,
+    "created": 1728640740222.0,
+    "source_on_save": false,
+    "relative_order": 3,
+    "properties": {
+        "chunk_output_type": "console",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "38,0",
+        "scrollLine": "19"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1728650769,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1728650769913,
+    "read_only": false,
+    "read_only_alternatives": []
+}

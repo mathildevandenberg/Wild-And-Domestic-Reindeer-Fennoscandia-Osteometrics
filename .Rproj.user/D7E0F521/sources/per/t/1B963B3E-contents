@@ -1,0 +1,1204 @@
+---
+title: "Classification"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+packages <- c("tidyverse", "here", "gghalves", "ggokabeito", "openxlsx", "ggbeeswarm", "ggthemes", "patchwork", "caret", "leaps", "glmnet", "klaR", "vip", "discrim", "tidymodels", "DALEXtra", "janitor")
+install.packages(setdiff(packages, rownames(installed.packages())))
+lapply(packages, library, character.only = T)
+rm(packages)
+
+list_database <- read_rds(here("output", "data", "database_list_main.rds"))
+elementnames <- list_database %>% 
+  names()
+
+groups <- c(
+  "rttd_m_c",
+  "rttd_m",
+  "rttd_f",
+  "rttw_m",
+  "rttw_f",
+  "rtf_m",
+  "rtf_f",
+  "rth_m",
+  "rth_f",
+  "rtk_m",
+  "rtk_f",
+  "unknown"
+)
+
+get_model <- function(x){
+  extract_fit_parsnip(x) 
+}
+```
+
+## LDA - Mosimann
+
+```{r}
+df_main <- read_rds(here("output", "data", "database_df_main.rds"))
+elementnames <- df_main$element %>% 
+  unique() %>% 
+  sort()
+```
+
+
+
+```{r}
+lda_distal <- function(x){
+  list_output <- list()
+  set.seed(4863)
+  var_name <- elementnames[x]
+  df <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_distal)
+  
+
+  
+  data_split <- initial_split(df, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+  cv_folds <- vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  iSize_distal,
+    data = train_data) %>% 
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+    
+  lda_spec <- discrim_linear(mode = "classification") %>% 
+                                set_engine('MASS')
+  
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+  lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+
+list_output[[1]] <- lda_pred %>% 
+  conf_mat(subspecies, .pred_class)
+
+list_output[[2]] <- list_output[[1]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (distal): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+
+ggsave(list_output[[2]],
+       filename = here("output","plots", paste0("confmat_distal_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+
+last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+  list_output[[4]] <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class)
+  
+  list_output[[5]] <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (distal): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+  ggsave(list_output[[5]],
+       filename = here("output","plots", paste0("confmat_distal_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+    return(list_output)  
+}
+
+###########################################################################################################################################################################
+
+lda_proximal <- function(x){
+  list_output <- list()
+  var_name <- elementnames[x]
+  df <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_proximal)
+  
+  set.seed(4863)
+  
+  data_split <- initial_split(df, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  iSize_proximal,
+    data = train_data) %>% 
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+    
+  lda_spec <- discrim_linear(mode = "classification") %>% 
+                                set_engine('MASS')
+  
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+  lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+
+list_output[[1]] <- lda_pred %>% 
+  conf_mat(subspecies, .pred_class)
+
+list_output[[2]] <- list_output[[1]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (proximal): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+
+ggsave(list_output[[2]],
+       filename = here("output","plots", paste0("confmat_proximal_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+
+last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+  list_output[[4]] <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class)
+  
+  list_output[[5]] <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (proximal): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+  ggsave(list_output[[5]],
+       filename = here("output","plots", paste0("confmat_proximal_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+    return(list_output)  
+}
+
+###########################################################################################################################################################################
+
+lda_shaft <- function(x){
+  list_output <- list()
+  var_name <- elementnames[x]
+  df <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_shaft)
+  
+  set.seed(4863)
+  
+  data_split <- initial_split(df, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  iSize_shaft,
+    data = train_data) %>% 
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+    
+  lda_spec <- discrim_linear(mode = "classification") %>% 
+                                set_engine('MASS')
+  
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+  lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+
+list_output[[1]] <- lda_pred %>% 
+  conf_mat(subspecies, .pred_class)
+
+list_output[[2]] <- list_output[[1]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (shaft): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+
+ggsave(list_output[[2]],
+       filename = here("output","plots", paste0("confmat_shaft_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+
+last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+  list_output[[4]] <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class)
+  
+  list_output[[5]] <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (shaft): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+  ggsave(list_output[[5]],
+       filename = here("output","plots", paste0("confmat_shaft_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+    return(list_output)  
+}
+
+
+###########################################################################################################################################################################
+
+lda_complete <- function(x){
+  list_output <- list()
+  var_name <- elementnames[x]
+  df <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_complete)
+  
+  set.seed(4863)
+  
+  data_split <- initial_split(df, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  iSize_complete,
+    data = train_data) %>% 
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+    
+  lda_spec <- discrim_linear(mode = "classification") %>% 
+                                set_engine('MASS')
+  
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+  lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+
+list_output[[1]] <- lda_pred %>% 
+  conf_mat(subspecies, .pred_class)
+
+list_output[[2]] <- list_output[[1]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (complete): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+
+ggsave(list_output[[2]],
+       filename = here("output","plots", paste0("confmat_complete_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+
+last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+  list_output[[4]] <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class)
+  
+  list_output[[5]] <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (complete): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+  ggsave(list_output[[5]],
+       filename = here("output","plots", paste0("confmat_complete_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+    return(list_output)  
+}
+
+###########################################################################################################################################################################
+
+lda_full <- function(x){
+  list_output <- list()
+  var_name <- elementnames[x]
+  df <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_full)
+  
+  set.seed(4863)
+  
+  data_split <- initial_split(df, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  iSize_full,
+    data = train_data) %>% 
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+    
+  lda_spec <- discrim_linear(mode = "classification") %>% 
+                                set_engine('MASS')
+  
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+  lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+
+list_output[[1]] <- lda_pred %>% 
+  conf_mat(subspecies, .pred_class)
+
+list_output[[2]] <- list_output[[1]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (full): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+
+ggsave(list_output[[2]],
+       filename = here("output","plots", paste0("confmat_full_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+
+last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+  list_output[[4]] <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class)
+  
+  list_output[[5]] <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize (full): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+  ggsave(list_output[[5]],
+       filename = here("output","plots", paste0("confmat_full_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+    return(list_output)  
+}
+```
+
+# Drive-in
+
+```{r}
+for(i in 1:7){}
+lda_distal(i)
+lda_proximal(i)
+lda_shaft(i)
+lda_complete(i)
+lda_full(i)
+```
+
+## RDA - Mosimann subsets
+
+```{r}
+rda_subsets <- function(x = 1){
+  list_output <- list()
+  
+  mitat <- metric_set(accuracy, bal_accuracy, f_meas)
+  
+  df_main <- read_rds(here("output", "data", "database_df_main.rds"))
+  
+  elementnames <- df_main$element %>% 
+  unique() %>% 
+  sort()
+  
+  var_name <- elementnames[x]
+  
+  lda_spec <- discrim_regularized(mode = "classification") %>% 
+                                set_engine('klaR')
+  
+  df_full <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>% 
+    mutate_if(is.factor, droplevels) %>% 
+    mutate(sex = case_when(castrated == "yes" ~ factor("c"),
+                           .default = sex)) %>% 
+    dplyr::select(specimen, subspecies, contains("full")) %>% 
+    drop_na()
+  
+  df_distal <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_distal)
+  
+  df_proximal <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, iSize_proximal)
+  
+  df_shaft <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, contains("shaft"))
+  
+  df_complete <- df_main %>% 
+    filter(element == elementnames[x]) %>% 
+  dplyr::select(specimen, subspecies, group, sex, variable, value) %>% 
+  filter(subspecies %in% c("Rangifer tarandus fennicus", 
+                           "Rangifer tarandus tarandus", 
+                           "Rangifer tarandus tarandus wild") &
+           sex %in% c("f", "m")) %>%   
+  mutate(subspecies = droplevels(subspecies),
+         sex = droplevels(sex)) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    dplyr::select(specimen, subspecies, group, sex, contains("complete"))
+  
+  data_split <- initial_split(df_full, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+    
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  .,
+    data = train_data) %>% 
+      update_role(specimen, new_role = "ID") %>%
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+    lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+  
+ p1 <-  lda_pred %>% 
+    conf_mat(subspecies, .pred_class) %>% 
+    autoplot(type = "heatmap") + 
+   theme_clean() +
+   labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (full): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+   theme(legend.position = "none")
+ 
+  ggsave(p1,
+         filename = here("output","plots", paste0("confmat_full_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, bal_accuracy, f_meas))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+list_output[[4]]   <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class) 
+  
+  p2 <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (full): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+    ggsave(p2,
+       filename = here("output","plots", paste0("confmat_full_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ mitat_full <-  bind_rows(mitat(lda_pred,
+        truth = subspecies,
+        estimate = .pred_class) %>% 
+    mutate(element = var_name,
+           variables = "full",
+           set = "train") %>% 
+    relocate(variables,element, set),
+    mitat(list_output[[3]],
+          truth = subspecies,
+          estimate = .pred_class) %>% 
+      mutate(element = var_name,
+           variables = "full",
+           set = "test") %>% 
+    relocate(variables,element, set))
+  
+  rm(p1,p2, list_output, data_split, train_data, test_data)
+
+  ## Distal
+  list_output <- list()
+  data_split <- initial_split(df_distal, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+    
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  .,
+    data = train_data) %>% 
+      update_role(specimen, new_role = "ID") %>%
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+    lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+  
+ p1 <-  lda_pred %>% 
+    conf_mat(subspecies, .pred_class) %>% 
+    autoplot(type = "heatmap") + 
+   theme_clean() +
+   labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (distal): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+   theme(legend.position = "none")
+ 
+  ggsave(p1,
+         filename = here("output","plots", paste0("confmat_distal_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+list_output[[4]]   <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class) 
+  
+  p2 <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (distal): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+    ggsave(p2,
+       filename = here("output","plots", paste0("confmat_distal_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+   mitat_distal <- bind_rows(mitat(lda_pred,
+        truth = subspecies,
+        estimate = .pred_class) %>% 
+    mutate(element = var_name,
+           variables = "distal",
+           set = "train") %>% 
+    relocate(variables,element, set),
+    mitat(list_output[[3]],
+          truth = subspecies,
+          estimate = .pred_class) %>% 
+      mutate(element = var_name,
+           variables = "distal",
+           set = "test") %>% 
+    relocate(variables,element, set))
+      
+  rm(p1,p2, list_output, data_split, train_data, test_data)
+  
+  ## Proximal
+  list_output <- list()
+  data_split <- initial_split(df_proximal, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+    
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  .,
+    data = train_data) %>% 
+      update_role(specimen, new_role = "ID") %>%
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+    lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+  
+ p1 <-  lda_pred %>% 
+    conf_mat(subspecies, .pred_class) %>% 
+    autoplot(type = "heatmap") + 
+   theme_clean() +
+   labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (proximal): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+   theme(legend.position = "none")
+ 
+  ggsave(p1,
+         filename = here("output","plots", paste0("confmat_proximal_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+list_output[[4]]   <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class) 
+  
+  p2 <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (proximal): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+    ggsave(p2,
+       filename = here("output","plots", paste0("confmat_proximal_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+    
+   mitat_proximal <-  bind_rows(mitat(lda_pred,
+        truth = subspecies,
+        estimate = .pred_class) %>% 
+    mutate(element = var_name,
+           variables = "proximal",
+           set = "train") %>% 
+    relocate(variables,element, set),
+    mitat(list_output[[3]],
+          truth = subspecies,
+          estimate = .pred_class) %>% 
+      mutate(element = var_name,
+           variables = "proximal",
+           set = "test") %>% 
+    relocate(variables,element, set))
+   
+  rm(p1,p2, list_output, data_split, train_data, test_data)
+  
+## Shaft
+  list_output <- list()
+   data_split <- initial_split(df_shaft, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+    
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+  
+  rec_df <- recipe(
+    subspecies ~  .,
+    data = train_data) %>% 
+      update_role(specimen, new_role = "ID") %>%
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+    lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+  
+ p1 <-  lda_pred %>% 
+    conf_mat(subspecies, .pred_class) %>% 
+    autoplot(type = "heatmap") + 
+   theme_clean() +
+   labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (shaft): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+   theme(legend.position = "none")
+ 
+  ggsave(p1,
+         filename = here("output","plots", paste0("confmat_shaft_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+list_output[[4]]   <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class) 
+  
+  p2 <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (shaft): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+    ggsave(p2,
+       filename = here("output","plots", paste0("confmat_shaft_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+   mitat_shaft <-  bind_rows(mitat(lda_pred,
+        truth = subspecies,
+        estimate = .pred_class) %>% 
+    mutate(element = var_name,
+           variables = "shaft",
+           set = "train") %>% 
+    relocate(variables,element, set),
+    mitat(list_output[[3]],
+          truth = subspecies,
+          estimate = .pred_class) %>% 
+      mutate(element = var_name,
+           variables = "shaft",
+           set = "test") %>% 
+    relocate(variables,element, set))
+    
+  rm(p1,p2, list_output, data_split, train_data, test_data)
+  
+  ## Complete
+  list_output <- list()
+ data_split <- initial_split(df_complete, 
+                              prop = 4/5,
+                              strata = subspecies)
+  train_data <- training(data_split)
+  test_data <-  testing(data_split)
+  
+    
+  cv_folds <-vfold_cv(train_data,
+                    v = 10,
+                    strata = subspecies)
+
+  rec_df <- recipe(
+    subspecies ~  .,
+    data = train_data) %>% 
+      update_role(specimen, new_role = "ID") %>%
+      step_naomit(everything()) %>% 
+      step_normalize((all_numeric()))
+
+  lda_wflow <- workflow() %>% 
+    add_recipe(rec_df) %>% 
+    add_model(lda_spec)
+  
+    lda_mod <- lda_wflow %>% 
+    fit_resamples(cv_folds,
+                metrics = metric_set(
+                  accuracy, kap),
+                control = control_resamples(
+                  save_pred = T,
+                  extract = get_model))
+  
+  lda_pred <- lda_mod %>% 
+    collect_predictions()
+  
+ p1 <-  lda_pred %>% 
+    conf_mat(subspecies, .pred_class) %>% 
+    autoplot(type = "heatmap") + 
+   theme_clean() +
+   labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (complete): ", toupper(var_name)),
+       subtitle = paste0("Data: training (", "N = ", nrow(train_data), ")"),
+       fill = NULL) +
+   theme(legend.position = "none")
+ 
+  ggsave(p1,
+         filename = here("output","plots", paste0("confmat_complete_train_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+  
+ last_fit_lda <- last_fit(
+  lda_wflow,
+  split = data_split,
+  metrics = metric_set(accuracy, kap))
+
+  list_output[[3]] <- last_fit_lda %>% 
+    collect_predictions()
+  
+list_output[[4]]   <- list_output[[3]]  %>% 
+  conf_mat(subspecies, .pred_class) 
+  
+  p2 <- list_output[[4]] %>% 
+  autoplot(type = "heatmap") + 
+  theme_clean() +
+  labs(x = "Observed",
+       y = "Predicted",
+       title = paste0("Confusion Matrix iSize + iShape (complete): ", toupper(var_name)),
+       subtitle = paste0("Data: test (", "N = ", nrow(last_fit_lda$.predictions[[1]]), ")"),
+       fill = NULL) +
+  theme(legend.position = "none")
+  
+    ggsave(p2,
+       filename = here("output","plots", paste0("confmat_complete_test_", var_name, ".png")),
+       dpi = 300,
+       units = "px",
+       width = 3000,
+       height = 2000)
+   mitat_complete <-  bind_rows(mitat(lda_pred,
+        truth = subspecies,
+        estimate = .pred_class) %>% 
+    mutate(element = var_name,
+           variables = "complete",
+           set = "train") %>% 
+    relocate(variables,element, set),
+    mitat(list_output[[3]],
+          truth = subspecies,
+          estimate = .pred_class) %>% 
+      mutate(element = var_name,
+           variables = "complete",
+           set = "test") %>% 
+    relocate(variables,element, set))
+   
+   
+   table_mitat <- bind_rows(mitat_full,
+          mitat_distal,
+          mitat_proximal,
+          mitat_shaft,
+          mitat_complete) %>% 
+  dplyr::select(-.estimator) %>%  
+  pivot_wider(names_from = ".metric", 
+              values_from = ".estimate") %>% 
+  rename("Variable set" = "variables",
+         "Element" = "element",
+         "Test/Train" = "set",
+         "Accuracy" = "accuracy",
+         "Balanced accuracy" = "bal_accuracy",
+         "F1-measure" = "f_meas")
+
+write.xlsx(table_mitat,
+           here("output", "tables", paste0(var_name,"_rda_measures.xlsx")))
+   
+  rm(p1,p2, list_output, data_split, train_data, test_data)}
+
+
+for(i in c(1,2,3,4,6,7)){
+  rda_subsets(i)
+}
+
+```
+

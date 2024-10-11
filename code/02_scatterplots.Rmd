@@ -1,0 +1,2489 @@
+---
+title: "Scatterplots"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Code for generating scatterplots of each variable combination.
+
+```{r packagesdata}
+packages <- c("tidyverse", "here", "gghalves", "ggokabeito", "ggthemes", "patchwork", "openxlsx", "ggrepel")
+install.packages(setdiff(packages, rownames(installed.packages())))
+lapply(packages, library, character.only = T)
+rm(packages)
+
+list_database <- read_rds(here("output", "data", "database_list_main.rds"))
+elementnames <- list_database %>% 
+  names()
+
+findoutlier <- function(x) {
+    return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
+}
+
+```
+
+Create a functions for plotting all combinations
+
+```{r combinations}
+
+combobreaker_sub <- function(x){
+  df1 <- list_database[[x]] %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value")
+  
+  x1 <- list_database[[x]] %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    select_if(is.numeric) %>% 
+    select(-group, -contains("iShape"), -contains("iSize")) %>% 
+    names()
+  
+  breakers <- combn(x1, 2)
+  breakers <- breakers[, breakers[1,] != breakers[2, ]]
+  combobreakers <- data.frame(
+    x1 = breakers[1,],
+    x2 = breakers[2,]) 
+  
+  element <- names(list_database)[x] %>% 
+    toupper()
+  
+  combonames <- data.frame(
+    x1 = breakers[1,],
+    x2 = breakers[2,]) %>% 
+    mutate(x1 = toupper(x1),
+           x2 = toupper(x2))   %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD"),
+         x1 = str_replace_all(x1, "BD","Bd"),
+         x1 = str_replace_all(x1, "BP","Bp"),
+         x1 = str_replace_all(x1, "DD","Dd"),
+         x1 = str_replace_all(x1, "SDd","SDD"),
+         x1 = str_replace_all(x1, "BFD","BFd"),
+         x1 = str_replace_all(x1, "BFP","BFp"),
+         x1 = str_replace_all(x1, "DP","Dp"),
+         x1 = str_replace_all(x1, "BAP","BAp"),
+         x1 = str_replace_all(x1, "BTM","BTm"),
+         x1 = str_replace_all(x1, "DVM","DVm"),
+         x1 = str_replace_all(x1, "DAM","Dam"),
+         x1 = str_replace_all(x1, "DPMIN","Dpmin"),
+         x1 = str_replace_all(x1, "LFO","Lfo"),
+         x1 = str_replace_all(x1, "SD","Sd"),
+         x1 = str_replace_all(x1, "SdD","SDD"),
+         x1 = str_replace_all(x1, "GLL","GLl"),
+         x2 = str_replace_all(x2, "GLL","GLl"),
+         x1 = str_replace_all(x1, "BdF","BDF"),
+         x2 = str_replace_all(x2, "BdF","BDF")) 
+  
+  for(i in 1:nrow(combobreakers)){
+    p1 <- df1 %>% 
+      ggplot(aes(x = !!sym(combobreakers[i,1]), y = !!sym(combobreakers[i,2]), fill = subspecies)) +
+      geom_point(pch = 21, size = 2.5) +
+      theme_clean() +
+      scale_fill_okabe_ito() +
+    labs(title = paste0(element),
+         fill = "Subspecies",
+         x = combonames[i,1],
+         y = combonames[i,2]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+    ggsave(
+      p1,
+      filename = here("output", "plots", "subspecies", paste0(element, "-","SUBSPECIES", "-",combobreakers[i,1],"-X-",combobreakers[i,2], ".png")),
+      dpi = 300*0.6,
+      width = 10.9*0.6,
+      height = 5.08*0.6,
+      units = "in")
+    pros <- round(i/nrow(combobreakers), digits = 3)*100
+    print(paste0(element, "-", toupper(combobreakers[i,1]), " ","Completed: ", pros, " percent"))
+  }
+  }
+
+```
+
+Scatterplots with GROUP
+
+```{r}
+combobreaker_gro <- function(x){
+  df1 <- list_database[[x]] %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild"))  %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value")
+  
+  x1 <- list_database[[x]]  %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value") %>% 
+    drop_na() %>% 
+    select_if(is.numeric) %>% 
+    select(-group, -contains("iShape"), -contains("iSize")) %>% 
+    names()
+  
+  breakers <- combn(x1, 2)
+  breakers <- breakers[, breakers[1,] != breakers[2, ]]
+  combobreakers <- data.frame(
+    x1 = breakers[1,],
+    x2 = breakers[2,])
+  
+    element <- names(list_database)[x] %>% 
+    toupper()
+  
+  combonames <- data.frame(
+    x1 = breakers[1,],
+    x2 = breakers[2,]) %>% 
+    mutate(x1 = toupper(x1),
+           x2 = toupper(x2))   %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD"),
+         x1 = str_replace_all(x1, "BD","Bd"),
+         x1 = str_replace_all(x1, "BP","Bp"),
+         x1 = str_replace_all(x1, "DD","Dd"),
+         x1 = str_replace_all(x1, "SDd","SDD"),
+         x1 = str_replace_all(x1, "BFD","BFd"),
+         x1 = str_replace_all(x1, "BFP","BFp"),
+         x1 = str_replace_all(x1, "DP","Dp"),
+         x1 = str_replace_all(x1, "BAP","BAp"),
+         x1 = str_replace_all(x1, "BTM","BTm"),
+         x1 = str_replace_all(x1, "DVM","DVm"),
+         x1 = str_replace_all(x1, "DAM","Dam"),
+         x1 = str_replace_all(x1, "DPMIN","Dpmin"),
+         x1 = str_replace_all(x1, "LFO","Lfo"),
+         x1 = str_replace_all(x1, "SD","Sd"),
+         x1 = str_replace_all(x1, "SdD","SDD"),
+         x1 = str_replace_all(x1, "GLL","GLl"),
+         x2 = str_replace_all(x2, "GLL","GLl"),
+         x1 = str_replace_all(x1, "BdF","BDF"),
+         x2 = str_replace_all(x2, "BdF","BDF")) 
+  
+  for(i in 1:nrow(combobreakers)){
+    p1 <- df1 %>% 
+      ggplot(aes(x = !!sym(combobreakers[i,1]), y = !!sym(combobreakers[i,2]), fill = group)) +
+      geom_point(pch = 21, size = 2.5) +
+      theme_clean() +
+      scale_fill_okabe_ito() +
+    labs(title = paste0(element),
+         fill = "Group",
+         x = combonames[i,1],
+         y = combonames[i,2]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+    ggsave(
+      p1,
+      filename = here("output", "plots", "group", paste0(element, "-","GROUP", "-",combobreakers[i,1],"-X-",combobreakers[i,2], ".png")),
+      dpi = 300*0.6,
+      width = 10.9*0.6,
+      height = 5.08*0.6,
+      units = "in")
+    pros <- round(i/nrow(combobreakers), digits = 3)*100
+    print(paste0(element, "-", toupper(combobreakers[i,1]), " ","Completed: ", pros, " percent"))
+  }
+  }
+
+```
+
+## Drive-in
+
+```{r}
+for(i in 1:length(elementnames)){
+  combobreaker_gro(i)
+  combobreaker_sub(i)
+}
+```
+
+# MENNERICH Indeces
+
+Compute MENNERICH indeces for each element, when possible.
+
+## Femur
+
+
+```{r mennerich_femur}
+ df1 <-  list_database$femur %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "fem_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild"))  %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>%  
+  mutate(ME1 = (fem_sd*100)/fem_gl,
+         ME3 = (fem_bd*100)/(fem_gl)) %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "FEMUR"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "femur_M1M3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2a <- df1 %>% 
+  ggplot(aes(x = fem_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "femur_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = fem_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "femur_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = fem_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "femur_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = fem_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "femur_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = fem_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "femur_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = fem_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "femur_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = fem_dc, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "DC",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "femur_DCM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = fem_dc, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "DC",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "femur_DCM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+## Add function for plotting mennerich indeces against all other variables
+
+nimet <- list_database$femur  %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "fem_") %>%  
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+  
+  
+combinames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2)) %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = combinames[i,2],
+       y = combinames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element, "-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))}
+
+rm(p1, p1a, p1b, p2a, p2b, p2c, p2d, p2e, p2f, p2g, p2h)
+
+
+```
+
+## Humerus
+
+```{r mennerichhumerus}
+ df1 <-  list_database$humerus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "hum_") %>%  
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+  mutate(ME1 = (hum_sd*100)/hum_gl,
+         ME3 = (hum_bd*100)/(hum_gl)) %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "HUMERUS"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "humerus_M1M2.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+## Add function for plotting mennerich indeces against all other variables
+nimet <- list_database$humerus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "hum_") %>%  
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+combonames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2))  %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+         x = combonames[i,2],
+         y = combonames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element, "-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))}
+ 
+p2a <- df1 %>% 
+  ggplot(aes(x = hum_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1")  +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "humerus_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = hum_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "humerus_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = hum_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "humerus_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = hum_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "humerus_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = hum_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "humerus_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = hum_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "humerus_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = hum_dp, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "humerus_DpM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = hum_dp, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "humerus_DpM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+rm(p1, p1a, p1b, p2a, p2b, p2c, p2d, p2e, p2f, p2g, p2h)
+```
+
+## Metacarpus
+
+```{r}
+ df1 <-  list_database$metacarpus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "mec_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>%
+  mutate(ME1 = (mec_sd*100)/mec_gl,
+         ME3 = (mec_bd*100)/(mec_gl)) %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "METACARPUS"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "metacarpus_M1M3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+## Add function for plotting mennerich indeces against all other variables
+nimet <- list_database$metacarpus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "mec_") %>% 
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+combinames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2))%>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = combinames[i,2],
+       y = combinames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element,"-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))}
+
+p2a <- df1 %>% 
+  ggplot(aes(x = mec_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "metacarpus_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = mec_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "metacarpus_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = mec_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "metacarpus_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = mec_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "metacarpus_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = mec_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "metacarpus_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = mec_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "metacarpus_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = mec_dp, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME1")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "metacarpus_DpM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = mec_dp, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "metacarpus_DpM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+rm(p1, p1a, p1b, p2a, p2b, p2c, p2d, p2e, p2f, p2g, p2h)
+```
+
+## Metatarsus
+
+```{r mennerichmetatarsus}
+ df1 <-  list_database$metatarsus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "met_") %>%  
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+  mutate(ME1 = (met_sd*100)/met_gl,
+         ME3 = (met_bd*100)/(met_gl)) %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "METATARSUS"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "metatarsus_M1M2.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+## Add function for plotting mennerich indeces against all other variables
+nimet <- list_database$metatarsus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "met_") %>%  
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+combonames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2)) %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+         x = combonames[i,2],
+         y = combonames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element, "-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))}
+
+
+p2a <- df1 %>% 
+  ggplot(aes(x = met_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "metatarsus_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = met_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "metatarsus_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = met_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "metatarsus_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = met_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "metatarsus_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = met_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "metatarsus_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = met_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "metatarsus_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = met_dp, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "metatarsus_DpM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = met_dp, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "metatarsus_DpM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+rm(p1, p1a, p1b, p2a, p2b, p2c, p2d, p2e, p2f, p2g, p2h)
+```
+
+## Radioulna
+
+```{r}
+df1 <-  list_database$radioulna %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "rad_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+  mutate(ME1 = (rad_sd*100)/rad_gl,
+         ME3 = (rad_bd*100)/(rad_gl)) %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "RADIOULNA"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "radioulna_M1M2.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+## Add function for plotting mennerich indeces against all other variables
+nimet <- list_database$radioulna %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "rad_") %>%  
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+combonames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2)) %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+         x = combonames[i,2],
+         y = combonames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element,"-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))
+}
+
+
+p2a <- df1 %>% 
+  ggplot(aes(x = rad_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "radioulna_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = rad_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "radioulna_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = rad_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "radioulna_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = rad_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "radioulna_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = rad_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "radioulna_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = rad_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "radioulna_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = rad_dp, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "radioulna_DpM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = rad_dp, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME3")+
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "radioulna_DpM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+```
+
+## Tibia
+
+```{r mennerichtibia}
+df1 <-  list_database$tibia %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "tib_") %>%  
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+  mutate(ME1 = (tib_sd*100)/tib_gl,
+         ME3 = (tib_bd*100)/(tib_gl))  %>% 
+  group_by(group) %>%
+    mutate(outlier_ME1_group = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_group = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup() %>% 
+  group_by(subspecies) %>% 
+  mutate(outlier_ME1_sub = ifelse(findoutlier(ME1), as.character(specimen), NA),
+           outlier_ME3_sub = ifelse(findoutlier(ME3), as.character(specimen), NA)) %>% 
+  ungroup()
+
+element <- "TIBIA"
+
+p1a <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = group)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_group), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_group), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1b <- df1 %>% 
+  ggplot(aes(x = ME1, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  geom_text_repel(aes(label = outlier_ME1_sub), na.rm = T, nudge_x = -0.1) +
+  geom_text_repel(aes(label = outlier_ME3_sub), na.rm = T, nudge_x = -0.1) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "ME1",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+p1 <- p1a/p1b
+
+ggsave(p1,
+       filename = here("output", "plots", "mennerich", "tibia_M1M2.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+rm(p1)
+## Add function for plotting mennerich indeces against all other variables
+nimet <- list_database$tibia %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "tib_") %>% 
+  drop_na() %>%
+  select_if(is.numeric) %>% 
+  select(-group, -contains("iShape"), -contains("iSize")) %>% 
+  names()
+
+all_combinations <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  as.data.frame()
+
+combonames <- expand_grid(x1 = c("ME1", "ME3"),
+                                x2 = nimet) %>% 
+  separate(x2, c(NA, "x2")) %>% 
+  mutate(x2 = toupper(x2)) %>% 
+  mutate(x2 = str_replace_all(x2, "BD","Bd"),
+         x2 = str_replace_all(x2, "BP","Bp"),
+         x2 = str_replace_all(x2, "DD","Dd"),
+         x2 = str_replace_all(x2, "SDd","SDD"),
+         x2 = str_replace_all(x2, "BFD","BFd"),
+         x2 = str_replace_all(x2, "BFP","BFp"),
+         x2 = str_replace_all(x2, "DP","Dp"),
+         x2 = str_replace_all(x2, "BAP","BAp"),
+         x2 = str_replace_all(x2, "BTM","BTm"),
+         x2 = str_replace_all(x2, "DVM","DVm"),
+         x2 = str_replace_all(x2, "DAM","Dam"),
+         x2 = str_replace_all(x2, "DPMIN","Dpmin"),
+         x2 = str_replace_all(x2, "LFO","Lfo"),
+         x2 = str_replace_all(x2, "SD","Sd"),
+         x2 = str_replace_all(x2, "SdD","SDD")) %>% 
+  as.data.frame()
+
+for(i in 1:nrow(all_combinations)){
+  p1 <- df1 %>% 
+    ggplot(aes(y = !!sym(all_combinations[i,1]), x = !!sym(all_combinations[i,2]), fill = group)) +
+    geom_point(pch = 21, size = 2.5) +
+    theme_clean() +
+    scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Group",
+         x = combonames[i,2],
+         y = combonames[i,1]) +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+  ggsave(
+    p1,
+    filename = here("output", "plots", "mennerich", paste0(element,"-","GROUP_",all_combinations[i,1],"_X_",all_combinations[i,2], ".png")),
+    dpi = 300,
+    width = 10.9,
+    height = 5.08,
+    units = "in")
+  pros <- round(i/nrow(all_combinations), digits = 3)*100
+  print(paste0(element, " ","Completed: ", pros, " percent"))
+}
+
+
+p2a <- df1 %>% 
+  ggplot(aes(x = tib_gl, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2a,
+       filename = here("output", "plots", "mennerich", "tibia_GLM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2b <- df1 %>% 
+  ggplot(aes(x = tib_gl, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "GL",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2b,
+       filename = here("output", "plots", "mennerich", "tibia_GLM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2c <- df1 %>% 
+  ggplot(aes(x = tib_bd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2c,
+       filename = here("output", "plots", "mennerich", "tibia_BdM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2d <- df1 %>% 
+  ggplot(aes(x = tib_bd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Bd",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2d,
+       filename = here("output", "plots", "mennerich", "tibia_BdM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2e <- df1 %>% 
+  ggplot(aes(x = tib_sd, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2e,
+       filename = here("output", "plots", "mennerich", "tibia_SDM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2f <- df1 %>% 
+  ggplot(aes(x = tib_sd, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "SD",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2f,
+       filename = here("output", "plots", "mennerich", "tibia_SDM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2g <- df1 %>% 
+  ggplot(aes(x = tib_dp, y = ME1, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME1") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2g,
+       filename = here("output", "plots", "mennerich", "tibia_DpM1.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+p2h <- df1 %>% 
+  ggplot(aes(x = tib_dp, y = ME3, fill = subspecies)) +
+  geom_point(pch = 21, size = 2.5) +
+  theme_clean() +
+  scale_fill_okabe_ito() +
+  labs(title = paste0(element),
+       fill = "Subspecies",
+       x = "Dp",
+       y = "ME3") +
+      theme(legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 14),
+            plot.title = element_text(hjust = 0.5))
+
+ggsave(p2h,
+       filename = here("output", "plots", "mennerich", "tibia_DpM3.png"),
+       units = "in",
+       dpi = 300,
+       width = 10.9,
+       height = 5.8)
+
+rm(p1, p1a, p1b, p2a, p2b, p2c, p2d, p2e, p2f, p2g, p2h)
+
+```
+
+### MENNERICH Index Descriptive Statistics
+
+Compute descriptive statistics of mennerich indeces per element and group
+
+```{r}
+## Femur
+
+df1 <-  list_database$femur %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "fem_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+    mutate(subspecies = fct_recode(subspecies,
+                                    "R.t.f." = "Rangifer tarandus fennicus",
+                                    "R.t.t. d" = "Rangifer tarandus tarandus",
+                                    "R.t.t. w" = "Rangifer tarandus tarandus wild"),
+           subspecies = droplevels(fct_relevel(subspecies,
+                                    c("R.t.t. d","R.t.t. w","R.t.f.")))) %>% 
+  mutate(ME1 = (fem_sd*100)/fem_gl,
+         ME3 = (fem_bd*100)/(fem_gl))
+
+me_femur <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Femur") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value")
+
+## Humerus
+
+df1 <-  list_database$humerus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "hum_") %>%  
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+  mutate(ME1 = (hum_sd*100)/hum_gl,
+         ME3 = (hum_bd*100)/(hum_gl))
+
+me_humerus <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Humerus") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value")
+
+### Metacarpus
+
+df1 <-  list_database$metacarpus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "mec_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+  mutate(ME1 = (mec_sd*100)/mec_gl,
+         ME3 = (mec_bd*100)/(mec_gl)) 
+
+me_metacarpus <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Metacarpus") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>%
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value")
+
+## Metatarsus
+
+df1 <-  list_database$metatarsus %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "met_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+  mutate(ME1 = (met_sd*100)/met_gl,
+         ME3 = (met_bd*100)/(met_gl))
+
+me_metatarsus <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Metatarsus") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>%
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value") %>% 
+  filter(group != "11")
+
+## Radioulna
+
+df1 <-  list_database$radioulna %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "rad_") %>%  
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+  mutate(ME1 = (rad_sd*100)/rad_gl,
+         ME3 = (rad_bd*100)/(rad_gl))
+
+me_radioulna <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Radioulna") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value")
+
+## Tibia
+
+df1 <-  list_database$tibia %>% 
+    pivot_wider(names_from = "variable",
+                values_from = "value",
+                names_prefix = "tib_") %>% 
+    drop_na() %>% 
+    relocate(group, subspecies) %>% 
+    mutate(group = factor(group),
+         group = fct_recode(group, 
+                              'R.t.t. d/m/c' = "1",
+                              'R.t.t. d/m' = "2",
+                              'R.t.t. d/f' = "3",
+                              'R.t.t. w/m' = "4",
+                              'R.t.t. w/f' = "5",
+                              'R.t.f. m' = "6",
+                              'R.t.f. f' = "7",
+                              'rth_m' = "8",
+                              'rth_f' = "9"),
+         group = droplevels(group)) %>% 
+    filter(subspecies %in% c("Rangifer tarandus fennicus",
+                             "Rangifer tarandus tarandus",
+                             "Rangifer tarandus tarandus wild")) %>% 
+  mutate(ME1 = (tib_sd*100)/tib_gl,
+         ME3 = (tib_bd*100)/(tib_gl))
+
+me_tibia <- df1 %>% 
+  dplyr::select(group, ME1, ME3) %>% 
+  group_by(group) %>% 
+  summarise(N = n(),
+            mean_ME1 = mean(ME1),
+            median_ME1 = median(ME1),
+            sd_ME1 = sd(ME1),
+            min_ME1 = min(ME1),
+            max_ME1 = max(ME1),
+            mean_ME3 = mean(ME3),
+            median_ME3 = median(ME3),
+            sd_ME3 = sd(ME3),
+            min_ME3 = min(ME3),
+            max_ME3 = max(ME3),
+            spread_ME1 = max_ME1 - min_ME1,
+            spread_ME3 = max_ME3 - min_ME3) %>% 
+  mutate(element = "Tibia") %>% 
+  relocate(group, element) %>% 
+  pivot_longer(cols = mean_ME1:spread_ME3, names_to = "variable", values_to = "value") %>%
+  separate(variable, into = c("variable", "ME")) %>% 
+  pivot_wider(names_from = "variable", values_from = "value")
+
+rm(df1)
+
+me_full <- bind_rows(
+  me_femur,
+  me_humerus,
+  me_metacarpus,
+  me_metatarsus,
+  me_radioulna,
+  me_tibia
+) %>% 
+  mutate_if(is.numeric, round, 2)
+
+wb1 <- createWorkbook(
+  creator = "Henri Wallen",
+  title = "MENNERICH - Descriptive"
+)
+
+addWorksheet(wb1,
+             "MENNERICH - Descriptive")
+
+writeData(wb1,
+          sheet = "MENNERICH - Descriptive",
+          me_full,
+          keepNA = TRUE,
+          na.string = "NA")
+
+saveWorkbook(wb1,
+             here("output", "tables", "mennerich_descriptive.xlsx"),
+             overwrite = T)
+```
